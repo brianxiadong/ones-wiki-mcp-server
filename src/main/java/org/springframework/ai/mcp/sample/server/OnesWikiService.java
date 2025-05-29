@@ -144,6 +144,32 @@ public class OnesWikiService {
     }
 
     /**
+     * Converts wiki URL to alternative API endpoint URL format.
+     * 
+     * @param wikiUrl the wiki page URL
+     * @return Alternative API endpoint URL for content retrieval
+     * @throws IllegalArgumentException if URL format is invalid
+     */
+    private String convertWikiUrlToAlternativeApiUrl(String wikiUrl) {
+        // Pattern to match wiki URL format
+        // https://example.com/wiki/#/team/AQzvsooq/space/EYvdiwVh/page/4RwySM6h
+        Pattern pattern = Pattern.compile("https://([^/]+)/wiki/#/team/([^/]+)/space/([^/]+)/page/([^/]+)");
+        Matcher matcher = pattern.matcher(wikiUrl);
+
+        if (matcher.find()) {
+            String host = matcher.group(1);
+            String teamUuid = matcher.group(2);
+            String pageUuid = matcher.group(4);
+
+            // Convert to alternative API endpoint format
+            return String.format("https://%s/wiki/api/wiki/team/%s/page/%s",
+                    host, teamUuid, pageUuid);
+        }
+
+        throw new IllegalArgumentException("Invalid wiki URL format");
+    }
+
+    /**
      * Processes wiki content and converts it to AI-friendly text format.
      * Supports both HTML and ONES Wiki JSON blocks format.
      * 
@@ -566,29 +592,52 @@ public class OnesWikiService {
                 return "Login failed, unable to get Wiki content";
             }
 
-            // Convert URL to API endpoint
-            String apiUrl = convertWikiUrlToApiUrl(wikiUrl);
+            // First try the main API endpoint
+            try {
+                String apiUrl = convertWikiUrlToApiUrl(wikiUrl);
 
-            // Get Wiki content
-            WikiContentResponse response = restClient.get()
-                    .uri(apiUrl)
-                    .header("Referer", String.format("https://%s/wiki/", host))
-                    .header("Cookie", String.format("language=en; ones-uid=%s; ones-lt=%s; timezone=Asia/Shanghai",
-                            userUuid, token))
-                    .retrieve()
-                    .body(WikiContentResponse.class);
+                WikiContentResponse response = restClient.get()
+                        .uri(apiUrl)
+                        .header("Referer", String.format("https://%s/wiki/", host))
+                        .header("Cookie", String.format("language=en; ones-uid=%s; ones-lt=%s; timezone=Asia/Shanghai",
+                                userUuid, token))
+                        .retrieve()
+                        .body(WikiContentResponse.class);
 
-            if (response != null && response.content() != null) {
-                String processedContent = processHtmlContent(response.content());
-                return processedContent;
-            } else {
-                return "No Wiki content retrieved";
+                if (response != null && response.content() != null) {
+                    String processedContent = processHtmlContent(response.content());
+                    return processedContent;
+                }
+            } catch (Exception primaryException) {
+                // If primary API fails, try alternative API endpoint
+                try {
+                    String alternativeApiUrl = convertWikiUrlToAlternativeApiUrl(wikiUrl);
+
+                    WikiContentResponse response = restClient.get()
+                            .uri(alternativeApiUrl)
+                            .header("Referer", String.format("https://%s/wiki/", host))
+                            .header("Cookie",
+                                    String.format("language=en; ones-uid=%s; ones-lt=%s; timezone=Asia/Shanghai",
+                                            userUuid, token))
+                            .retrieve()
+                            .body(WikiContentResponse.class);
+
+                    if (response != null && response.content() != null) {
+                        String processedContent = processHtmlContent(response.content());
+                        return processedContent;
+                    } else {
+                        return "No Wiki content retrieved from alternative API";
+                    }
+                } catch (Exception alternativeException) {
+                    return String.format("Both primary and alternative APIs failed. Primary: %s, Alternative: %s",
+                            primaryException.getMessage(), alternativeException.getMessage());
+                }
             }
+
+            return "No Wiki content retrieved";
 
         } catch (IllegalArgumentException e) {
             return "URL format error: " + e.getMessage();
-        } catch (RestClientException e) {
-            return "Network request failed: " + e.getMessage();
         } catch (Exception e) {
             return "Failed to get Wiki content: " + e.getMessage();
         }

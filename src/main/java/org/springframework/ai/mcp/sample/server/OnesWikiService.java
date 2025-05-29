@@ -391,14 +391,25 @@ public class OnesWikiService {
 
         if (block.has("children")) {
             com.fasterxml.jackson.databind.JsonNode children = block.get("children");
+            StringBuilder codeContent = new StringBuilder();
+
             for (com.fasterxml.jackson.databind.JsonNode child : children) {
                 String childId = child.asText();
                 com.fasterxml.jackson.databind.JsonNode childNode = rootNode.get(childId);
 
                 if (childNode != null && childNode.has("text")) {
                     String text = extractTextFromTextArray(childNode.get("text"));
-                    result.append(text).append("\n");
+                    codeContent.append(text);
                 }
+            }
+
+            // 处理代码块内容，保持原有的换行符，不强制添加额外换行
+            String finalCodeContent = codeContent.toString();
+            result.append(finalCodeContent);
+
+            // 只在内容末尾没有换行符时添加一个换行符
+            if (!finalCodeContent.isEmpty() && !finalCodeContent.endsWith("\n")) {
+                result.append("\n");
             }
         }
 
@@ -430,6 +441,7 @@ public class OnesWikiService {
                         }
                     }
 
+                    // 直接添加文本内容，保持原有格式
                     result.append(text);
                 }
             }
